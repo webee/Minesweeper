@@ -26,6 +26,12 @@ def get_commons(x,y):
     cset = xset.intersection(yset)
     return list(cset)
 
+def get_diff(x,y):
+    xset = set(x)
+    yset = set(y)
+    dset = xset - yset
+    return list(dset)
+
 class Difficulty:
     def __init__(self, name, width, height, mines, cellsize):
         self.name = name
@@ -90,6 +96,7 @@ class Box:
             if not self.ismine:
                 self.is_open = True
             else:
+		self.flag_stat = -1
                 return -1
         else:
             return 0
@@ -97,12 +104,28 @@ class Box:
         multi = 1
         if self.number == 0:
             for box in self.arounds:
-                if not box.ismine:
-                    multi += box.reveal()
+                multi += box.reveal()
         return multi+1
 
 class Mines:
     def __init__(self):
+        self.small_font = pygame.font.Font(pygame.font.get_default_font(),12)
+        self.medium_font = pygame.font.Font(pygame.font.get_default_font(),18)
+        self.large_font = pygame.font.Font(pygame.font.get_default_font(),24)
+
+        self.SW = 920
+        self.SH = 690
+        self.background = pygame.Surface((self.SW,self.SH))
+        self.load_colors()
+        self.color_schema=0
+
+        self.__init_game()
+        self.__init_sound()
+        
+        self.screen = pygame.display.set_mode((self.SW, self.SH))
+        self.reset()
+
+    def __init_game(self):
         self.difficulty = 2
         self.difficulties = []
         self.difficulties.append(Difficulty("Easy"  ,  9,  9, 10, 35))
@@ -113,50 +136,18 @@ class Mines:
         self.difficulties.append(Difficulty("More Narrow", 40, 4, 35, 18))
         self.difficulties.append(Difficulty("Ridiculous", 50, 30, 320, 18))
 
-        self.stepx=0
-        self.stepy=0
+    def __init_sound(self):
+        self.sounds = {}
+        self.sounds['start'] = load_sound('ms_start.wav')
+        self.sounds['lose'] = load_sound('ms_lose.wav')
+        self.sounds['single'] = load_sound('ms_single.wav')
+        self.sounds['multi'] = load_sound('ms_multi.wav')
+        self.sounds['win'] = load_sound('ms_win.wav')
+        self.mute = False
 
-        self.SW = 920
-        self.SH = 690
-
-        self.w = self.difficulties[self.difficulty].width
-        self.h = self.difficulties[self.difficulty].height
-        self.cell_size = self.difficulties[self.difficulty].cell_size
-        self.mines = self.difficulties[self.difficulty].mines
-        self.flagged = 0
-
-        self.grid = grid.Grid(self.w,self.h,Box())
-
-        self.xoff = (self.SW/2)-(self.cell_size*self.w/2)
-        self.yoff = (self.SH/2)-(self.cell_size*self.h/2)+10
-
-        self.gameover = False
-        self.win = False
-        self.started = False
-        self.time_start = 0
-        self.time_spend = 0
-
-        self.small_font = pygame.font.Font(pygame.font.get_default_font(),12)
-        self.medium_font = pygame.font.Font(pygame.font.get_default_font(),18)
-        self.large_font = pygame.font.Font(pygame.font.get_default_font(),24)
-
-        self.background = pygame.Surface((self.SW,self.SH))
-        self.load_colors()
-        self.color_schema=0
-
-        self.sound_boom = load_sound('boomboomuhoh.wav')
-        self.sound_boop = load_sound('boop.wav')
-        self.sound_beeh = load_sound('beeh.wav')
-        self.sound_wsh = load_sound('wsh.wav')
-        self.sound_yes = load_sound('yes.wav')
-        self.sound_lose = load_sound('ms_lose.wav')
-        self.sound_single = load_sound('ms_single.wav')
-        self.sound_multi = load_sound('ms_multi.wav')
-        self.sound_win = load_sound('ms_win.wav')
-
-        self.screen = pygame.display.set_mode((self.SW, self.SH))
-        pygame.display.set_caption('Mines - ' + self.difficulties[self.difficulty].name)
-
+    def sound_play(self, sound):
+        if not self.mute:
+            self.sounds[sound].play()
 
     def update_bg(self):
         self.background.fill((222,222,0))
@@ -191,30 +182,40 @@ class Mines:
                         self.win = False
                         break
         if self.win:
+            for x in range(self.w):
+                for y in range(self.h):
+                    if self.grid.v[x][y].ismine and self.grid.v[x][y].flag_stat != 1:
+                        self.grid.v[x][y].flag_stat = 3
             self.gameover = True
-            time.sleep(0.5)
-            self.sound_win.play()
+            #time.sleep(0.5)
+            pygame.mixer.stop()
+            self.sound_play("win")
                     
     def reveal(self, pos, silent=False):
         x,y = pos
         multi = self.grid.v[x][y].reveal()
         if multi > 1:
-            self.sound_multi.play()
+            self.sound_play("multi")
         elif multi == 1:
-            self.sound_single.play()
+            self.sound_play("single")
         elif multi < 0:
+            self.gameover = True
+            self.sound_play("lose")
+            mines = 0
             for x in range(self.w):
                 for y in range(self.h):
-                    if self.grid.v[x][y].ismine and self.grid.v[x][y].flag_stat != 1:
-                        # mines not flaged.
-                        self.grid.v[x][y].flag_stat = 3
-                        if (x+y)%3:
-                            self.draw()
-                        if (x+y)%7:
-                            self.sound_lose.play()
-            self.gameover = True
+                    box = self.grid.v[x][y]
+                    if box.ismine and box.flag_stat in [0,2]:
+                        box.flag_stat = 3
+                        mines += 1
+                    elif not box.ismine and box.flag_stat in [1]:
+                        box.flag_stat = 4
+                    if (x+y)%3:
+                        self.draw()
+                    if mines%3:
+                        self.sound_play("lose")
             return multi
-        
+
         if multi and not silent:
             self.check_win()
         return multi
@@ -283,6 +284,9 @@ class Mines:
         yblanks = ybox.get_blanks()
         cblanks = get_commons(xblanks, yblanks)
 
+        xoblanks = get_diff(xblanks, cblanks)
+        yoblanks = get_diff(yblanks, cblanks)
+        
         if len(cblanks) == 0:
             return 0
 
@@ -296,40 +300,28 @@ class Mines:
         #max_y_c = yfree > len(cblanks) and len(cblanks) or yfree
 
         # two categories.
-        if len(yblanks) - len(cblanks) > 0:
+        if len(xoblanks)>0 or len(yoblanks)> 0:
             if min_x_c == yfree:
                 if not silent:
                     print "xbox:%s,ybox:%s,mx:%i, yf:%i"%(xbox.pos, ybox.pos, min_x_c, yfree)
-                for box in yblanks:
-                    if box not in cblanks:
-                        changes += self.reveal(box.pos, silent=True)
+                for box in yoblanks:
+                    changes += self.reveal(box.pos, silent=True)
 
-            if len(xblanks) == len(cblanks) and min_x_c + yother == yfree:
-                if not silent:
-                    print "xbox:%s,ybox:%s,mx:%i, yf:%i"%(xbox.pos, ybox.pos, min_x_c, yfree)
-                for box in yblanks:
-                    if box not in cblanks:
-                        changes += self.flag(box.pos, silent=True)
+                for box in xoblanks:
+                    changes += self.flag(box.pos, silent=True)
 
-        if len(xblanks) - len(cblanks) > 0:
             if min_y_c == xfree:
                 if not silent:
                     print "xbox:%s,ybox:%s,xf:%i, my:%i"%(xbox.pos, ybox.pos, xfree, min_y_c)
-                for box in xblanks:
-                    if box not in cblanks:
-                        changes += self.reveal(box.pos, silent=True)
-
-            if len(yblanks) == len(cblanks) and min_y_c + xother == xfree:
-                if not silent:
-                    print "xbox:%s,ybox:%s,xf:%i, my:%i"%(xbox.pos, ybox.pos, xfree, min_y_c)
-                for box in xblanks:
-                    if box not in cblanks:
-                        changes += self.flag(box.pos, silent=True)
+                for box in xoblanks:
+                    changes += self.reveal(box.pos, silent=True)
+                for box in yoblanks:
+                    changes += self.flag(box.pos, silent=True)
         return changes
 
     def __do_auto_anlysis(self, xbox, silent=True):
         changes = 0
-        for ybox in xbox.arounds:
+        for ybox in xbox.arounds+xbox.arounds2:
             if ybox.not_full():
                 changes += self.__do_anlysis(xbox,ybox, silent)
         return changes
@@ -341,6 +333,7 @@ class Mines:
                 box = self.grid.v[x][y]
                 if box.not_full():
                     if self.__do_auto_anlysis(box, silent=False):
+                        self.check_win()
                         return x,y+1
                 y = y+1
             x = x+1
@@ -354,6 +347,8 @@ class Mines:
                 box = self.grid.v[x][y]
                 if box.not_full():
                     changes += self.__do_auto_anlysis(box)
+        if changes:
+            self.check_win()
         return changes
 
     def __set_around(self, pos):
@@ -377,40 +372,50 @@ class Mines:
             if self.__check_pos(i,j):
                 box.arounds2.append(self.grid.v[i][j])
 
-    def set_mines(self, pos=None):
+    def set_mines(self, pos):
         for x in range(self.w):
             for y in range(self.h):
                 self.grid.v[x][y].pos = (x,y)
 
+        x,y = pos
+        arounds = [(x-1,y-1),(x,y-1),(x+1,y-1),(x-1,y),(x+1,y),(x-1,y+1),(x,y+1),(x+1,y+1)]
+        targets = []
+        for i,j in arounds:
+            if self.__check_pos(i,j):
+                targets.append((i,j))
         done = False
         minesset = 0
-        
         # set mines
         while not done:
             x = random.randint(0,(self.w-1))
             y = random.randint(0,(self.h-1))
-            if not self.grid.v[x][y].ismine and (x,y)!=pos:
-                self.grid.v[x][y].ismine = True
-                minesset += 1
+            box = self.grid.v[x][y]
+            if not box.ismine:
+                if (x,y) not in targets and (x,y) != pos:
+                    self.grid.v[x][y].ismine = True
+                    minesset += 1
             if minesset == self.mines:
                 done = True
+
         # set arounds && number
         for x in range(self.w):
             for y in range(self.h):
                 self.__set_around((x,y))
 
-        if pos:
-            self.reveal((pos))
+        self.reveal((pos))
         self.started = True
         self.time_start = time.time()
 
     def reset(self):
+        pygame.mixer.stop()
         self.win = False
         self.gameover = False
         self.started = False
         self.flagged = 0
         self.stepx=0
         self.stepy=0
+        self.time_start = 0
+        self.time_spend = 0
 
         self.w = self.difficulties[self.difficulty].width
         self.h = self.difficulties[self.difficulty].height
@@ -423,6 +428,9 @@ class Mines:
         self.grid = grid.Grid(self.w,self.h,Box())
         pygame.display.set_caption('Mines - ' + self.difficulties[self.difficulty].name)
 
+        self.sound_play("start")
+        self.draw()
+        time.sleep(0.5)
 
     def randomize_colors(self):
         self.colors_bg = list((random_color(), random_color(), random_color()))
@@ -442,7 +450,6 @@ class Mines:
         self.colors_back_lose = random_color()
         self.colors_numbers = random_color()
         self.update_bg()
-        
 
     def load_colors(self, fn = "default.color"):
         if os.path.exists(fn):
@@ -476,77 +483,78 @@ class Mines:
     def draw(self):
         self.screen.blit(self.background,(0,0))
 
-        if self.win:
-            pygame.draw.rect(self.screen, self.colors_back_win,(self.xoff-2, self.yoff-2, self.cell_size*self.w+4, self.cell_size*self.h+4))
-        elif self.gameover:
-            pygame.draw.rect(self.screen, self.colors_back_lose,(self.xoff-2, self.yoff-2, self.cell_size*self.w+4, self.cell_size*self.h+4))
+        if self.gameover:
+            if self.win:
+                pygame.draw.rect(self.screen, self.colors_back_win,(self.xoff-2, self.yoff-2, self.cell_size*self.w+4, self.cell_size*self.h+4))
+            else:
+                pygame.draw.rect(self.screen, self.colors_back_lose,(self.xoff-2, self.yoff-2, self.cell_size*self.w+4, self.cell_size*self.h+4))
         else:
             pygame.draw.rect(self.screen, self.colors_back,(self.xoff-2, self.yoff-2, self.cell_size*self.w+4, self.cell_size*self.h+4))
 
         for x in range(self.w):
             for y in range(self.h):
+                xstart = self.xoff+x*self.cell_size
+                ystart = self.yoff+y*self.cell_size
                 box = self.grid.v[x][y]
                 if box.is_open:
                     if box.number > 0:                            
-                        pygame.draw.rect(self.screen, self.colors_revealed, (self.xoff+x*self.cell_size, self.yoff+y*self.cell_size, self.cell_size-1, self.cell_size-1))
+                        pygame.draw.rect(self.screen, self.colors_revealed, (xstart, ystart, self.cell_size-1, self.cell_size-1))
                         self.screen.blit(self.small_font.render(str(box.number),True, self.colors_numbers),
-                                         (self.xoff+x*self.cell_size+(self.cell_size/2)-(self.small_font.size(str(box.number))[0]/2)-1,
-                                          self.yoff+y*self.cell_size+(self.cell_size/2)-(self.small_font.size(str(box.number))[1]/2)-1))
+                                         (xstart+(self.cell_size/2)-(self.small_font.size(str(box.number))[0]/2)-1,
+                                          ystart+(self.cell_size/2)-(self.small_font.size(str(box.number))[1]/2)-1))
                     else:
                         if self.win:
-                            pygame.draw.rect(self.screen, self.colors_notouch_win, (self.xoff+x*self.cell_size, self.yoff+y*self.cell_size, self.cell_size-1, self.cell_size-1))
+                            pygame.draw.rect(self.screen, self.colors_notouch_win, (xstart, ystart, self.cell_size-1, self.cell_size-1))
                         else:
-                            pygame.draw.rect(self.screen, self.colors_notouch, (self.xoff+x*self.cell_size, self.yoff+y*self.cell_size, self.cell_size-1, self.cell_size-1))
+                            pygame.draw.rect(self.screen, self.colors_notouch, (xstart, ystart, self.cell_size-1, self.cell_size-1))
                 else:
                     p = pygame.mouse.get_pos()
                     if (int((p[0] - self.xoff)/self.cell_size) == x) and (int((p[1] - self.yoff)/self.cell_size) == y):
-                        pygame.draw.rect(self.screen, self.colors_highlight, (self.xoff+x*self.cell_size, self.yoff+y*self.cell_size, self.cell_size-1, self.cell_size-1))
+                        pygame.draw.rect(self.screen, self.colors_highlight, (xstart, ystart, self.cell_size-1, self.cell_size-1))
                     else:
-                        pygame.draw.rect(self.screen,self.colors_unrevealed, (self.xoff+x*self.cell_size, self.yoff+y*self.cell_size, self.cell_size-1, self.cell_size-1))
-                    if box.ismine and self.gameover and not self.win:
-                        pygame.draw.rect(self.screen, self.colors_mine, (self.xoff+x*self.cell_size, self.yoff+y*self.cell_size, self.cell_size-1, self.cell_size-1))
-                    # mines not flaged
-                    elif box.flag_stat == 3:
-                        pygame.draw.rect(self.screen, self.colors_mine, (self.xoff+x*self.cell_size, self.yoff+y*self.cell_size, self.cell_size-1, self.cell_size-1))
-                    if box.flag_stat == 1:
-                        if not box.ismine and self.gameover:
-                            pygame.draw.rect(self.screen, self.colors_numbers, (self.xoff+x*self.cell_size, self.yoff+y*self.cell_size, self.cell_size-1, self.cell_size-1))
-                        else:
-                            pygame.draw.rect(self.screen, self.colors_flag[0], (self.xoff+x*self.cell_size+4, self.yoff+y*self.cell_size+4, self.cell_size-1-8, self.cell_size-1-8))
-                        pygame.draw.rect(self.screen, self.colors_flag[1], (self.xoff+x*self.cell_size+5, self.yoff+y*self.cell_size+5, self.cell_size-1-10, self.cell_size-1-10))
-                    if box.flag_stat == 2:
-                        pygame.draw.rect(self.screen, self.colors_flag2[0], (self.xoff+x*self.cell_size+4, self.yoff+y*self.cell_size+4, self.cell_size-1-8, self.cell_size-1-8))
-                        pygame.draw.rect(self.screen, self.colors_flag2[1], (self.xoff+x*self.cell_size+5, self.yoff+y*self.cell_size+5, self.cell_size-1-10, self.cell_size-1-10))
+                        pygame.draw.rect(self.screen,self.colors_unrevealed, (xstart, ystart, self.cell_size-1, self.cell_size-1))
+                if box.flag_stat == -1:#over:mines opened
+                    pygame.draw.rect(self.screen, self.colors_numbers, (xstart, ystart, self.cell_size-1, self.cell_size-1))
+                elif box.flag_stat == 1:#mines flagged
+                    pygame.draw.rect(self.screen, self.colors_flag[0], (xstart+4, ystart+4, self.cell_size-1-8, self.cell_size-1-8))
+                    pygame.draw.rect(self.screen, self.colors_flag[1], (xstart+5, ystart+5, self.cell_size-1-10, self.cell_size-1-10))
+                elif box.flag_stat == 2:#unsure flagged
+                    pygame.draw.rect(self.screen, self.colors_flag2[0], (xstart+4, ystart+4, self.cell_size-1-8, self.cell_size-1-8))
+                    pygame.draw.rect(self.screen, self.colors_flag2[1], (xstart+5, ystart+5, self.cell_size-1-10, self.cell_size-1-10))
+                elif box.flag_stat == 3:#over:mines not flagged
+                    pygame.draw.rect(self.screen, self.colors_mine, (xstart, ystart, self.cell_size-1, self.cell_size-1))
+                elif box.flag_stat == 4:#over:not mines flagged
+                    pygame.draw.rect(self.screen, self.colors_numbers, (xstart, ystart, self.cell_size-1, self.cell_size-1))
+                    pygame.draw.rect(self.screen, self.colors_flag[1], (xstart+5, ystart+5, self.cell_size-1-10, self.cell_size-1-10))
 
         if self.gameover:
-            if not self.win:
-                self.screen.blit(self.medium_font.render("GAME OVER", True, self.colors_text_lose), ((self.SW/2)-(self.medium_font.size("GAME OVER")[0]/2),10))
-            else:
+            if self.win:
                 self.screen.blit(self.medium_font.render("YOU WIN!", True, self.colors_text_win), ((self.SW/2)-(self.medium_font.size("YOU WIN!")[0]/2),10))
+            else:
+                self.screen.blit(self.medium_font.render("GAME OVER", True, self.colors_text_lose), ((self.SW/2)-(self.medium_font.size("GAME OVER")[0]/2),10))
+        # normal things
         self.screen.blit(self.medium_font.render("Change Difficulty With n/p. Restart with r.",True, self.colors_text), (10,self.SH-25))
-        
         pygame.draw.line(self.screen, self.colors_text, (10, 8+self.medium_font.size("Minesweeper")[1]), (10+self.medium_font.size("Minesweeper")[0], 8+self.medium_font.size("Minesweeper")[1]))
         self.screen.blit(self.medium_font.render("Minesweeper", True, self.colors_text), (10,10))
         self.screen.blit(self.medium_font.render("Difficulty: "+self.difficulties[self.difficulty].name, True, self.colors_text), (10,35))
         self.screen.blit(self.medium_font.render("Mines Left:"+str(self.mines-self.flagged), True, self.colors_text), (self.xoff, self.yoff - 25))
+        # time spent
         if self.started:
             if not self.gameover:
                 self.time_spend = time.time() - self.time_start
-            self.screen.blit(self.medium_font.render("Times:"+str(int(self.time_spend)), True, self.colors_text), (self.xoff+400, self.yoff - 25))
-
+                self.screen.blit(self.medium_font.render("Times:"+str(int(self.time_spend)), True, self.colors_text), (self.xoff+400, self.yoff - 25))
+        # highlight.
         if pygame.mouse.get_pos()[0] >= self.SW-25 and pygame.mouse.get_pos()[1] <= 25:
             pygame.draw.rect(self.screen, self.colors_highlight, (self.SW-25,0,25,25))
         else:
             pygame.draw.rect(self.screen, self.colors_unrevealed, (self.SW-25,0,25,25))
-        self.screen.blit(self.medium_font.render("R", True, (50,50,50)), (self.SW-18, 4))
-        
-        pygame.display.flip()
+            self.screen.blit(self.medium_font.render("R", True, (50,50,50)), (self.SW-18, 4))
+            pygame.display.flip() 
 
-        
     def play(self):
-        
         running = True
         while running:
+            self.draw()
             for event in pygame.event.get():
                 if event.type == QUIT:
                     running = False
@@ -557,54 +565,53 @@ class Mines:
                         if event.pos[1] >= self.yoff and event.pos[1] < self.yoff+(self.cell_size*self.h):
                             x = int((event.pos[0]-self.xoff)/self.cell_size)
                             y = int((event.pos[1]-self.yoff)/self.cell_size)
+			    if event.button in [1,3] and not self.started:
+				self.set_mines((x,y))
                             if event.button == 1:
-                                if not self.started:
-                                    self.set_mines((x,y))
-                                else:
-                                    self.reveal((x, y))
+				self.reveal((x, y))
                             elif event.button == 3:
-                                self.flag(x, y)
+                                self.flag((x, y))
                 elif event.type == KEYDOWN:
-                    if event.key == K_f:
-                        self.auto_flag()
-                    if event.key == K_g:
-                        self.auto_open()
-                    if event.key == K_d:
-                        #self.auto_anlysis()
-                        self.stepx,self.stepy=self.step_auto_anlysis(self.stepx,self.stepy)
-                    if event.key == K_j:
-                        while self.auto_anlysis():
-                            pass
-                    if event.key == K_k:
-                        self.auto_open()
-                        while self.auto_flag():
+                    if not self.gameover:
+                        if event.key == K_f:
+                            self.auto_flag()
+                        if event.key == K_g:
                             self.auto_open()
-                    if event.key == K_s:
+                        if event.key == K_d:
+                            #self.auto_anlysis()
+                            self.stepx,self.stepy=self.step_auto_anlysis(self.stepx,self.stepy)
+                        if event.key == K_j:
+                            while self.auto_anlysis():
+                                pass
+                        if event.key == K_k:
+                            self.auto_open()
+                            while self.auto_flag():
+                                self.auto_open()
+                    if event.key == K_r:
+                        self.reset()
+                    elif event.key == K_m:
+                        self.mute = not self.mute
+                    elif event.key == K_s:
                         schemas = os.listdir("color")
                         self.color_schema = (self.color_schema + 1)%len(schemas)
                         self.load_colors("color/%s"%(schemas[self.color_schema]))
-                    if event.key == K_r:
-                        pygame.mixer.stop()
-                        self.reset()
-                    if event.key == K_z:
+                    elif event.key == K_z:
                         self.randomize_colors()
-                    if event.key == K_x:
+                    elif event.key == K_x:
                         self.load_colors()
-                    if event.key == K_v:
+                    elif event.key == K_v:
                         self.print_colors()
-                    if event.key == K_n:
+                    elif event.key == K_n:
                         self.difficulty = (self.difficulty + 1)%len(self.difficulties)
                         self.reset()
-                    if event.key == K_p:
+                    elif event.key == K_p:
                         self.difficulty = (self.difficulty - 1)%len(self.difficulties)
                         self.reset()
-            self.draw()
+                    elif event.key == K_q:
+                        running = False
 
 def main():
     pygame.init()
-    #pygame.display.init()
-    #pygame.font.init()
-    #pygame.mixer.init()
     game = Mines()
     game.play()
     pygame.quit()
