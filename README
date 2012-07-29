@@ -1,0 +1,27 @@
+control:
+r: restart a new game.
+q: quit the game.
+m: mute the sound.
+
+play:
+n/p: change between difficulties && restart a new game.
+mouse_left: dig
+mouse_right: flag
+
+auto helper:
+f: auto flag those: blanks == unflagged.
+g: auto dig those: all flagged and blanks>0
+
+k: loop: auto dig,then auto flag until no change.
+j: auto anlysis.
+d: step by step anlysis,  output to console.
+
+we can use k/j to do most boring dig/flag.
+but leave the problem(ofen to choose one from two things, or other I can't analysis)to you.
+enjoy it.
+
+Color:
+s: cycle color schema.
+z: radom color.
+v: print color to console.
+x: load the default color.
