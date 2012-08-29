@@ -25,3 +25,7 @@ s: cycle color schema.
 z: radom color.
 v: print color to console.
 x: load the default color.
+
+thanks to: Kyle Marshall
+the orign code is from:
+http://www.pygame.org/project-Minesweeper-2189-3787.html
